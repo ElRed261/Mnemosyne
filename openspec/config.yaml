@@ -1,0 +1,61 @@
+schema: spec-driven
+project: data-engineer
+# Logical name: andry-de-zoomcamp (pyproject.toml) — SDD slug: data-engineer
+context: |
+  Tech stack: Python 3.12 (uv, pyproject.toml), stdlib-only CLI (scripts/mnemo.py), ruff 0.16 + pytest 9.1, MinIO datalake
+  Architecture: local-first 4 nodes (PCrda/laptop/tecnologia04/Uranus), Git + CURRENT.md continuity, mnemosyne.toml config, CasaOS Postgres external
+  Testing: uv run ruff check . + uv run pytest -q (4 tests, line-length 100, target py312)
+  Conventions: AGENTS.md strict workflow, .gitignore secrets/data, ./mnemo doctor/start/end/sync, NVIM_APPNAME=mnemosyne-nvim
+
+artifact_store:
+  mode: hybrid
+delivery_strategy: ask-on-risk
+review_budget_lines: 1200
+
+strict_tdd: true
+
+testing:
+  runner: "uv run pytest -q"
+  framework: pytest 9.1.1
+  runner_available: true
+  layers:
+    unit: { available: true, tool: pytest }
+    integration: { available: false, tool: — }
+    e2e: { available: false, tool: — }
+  coverage:
+    available: false
+    command: —
+  quality:
+    linter: { available: true, command: "uv run ruff check ." }
+    type_checker: { available: false, command: — }
+    formatter: { available: true, command: "uv run ruff format ." }
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Quantify scope vs local-first constraint (offline-safe, no cloud dependency)
+  specs:
+    - Use Given/When/Then for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+    - Keep deltas under openspec/changes/{change-name}/specs/{domain}/spec.md
+  design:
+    - Include sequence diagrams for complex flows
+    - Document architecture decisions with rationale
+    - Keep changes stdlib-first, uv-managed, ARM64-compatible for Uranus
+  tasks:
+    - Group by phase, use hierarchical numbering
+    - Keep tasks completable in one session
+    - Co-locate tests with code, update CURRENT.md per AGENTS.md cycle
+  apply:
+    guidelines:
+      - Follow existing mnemo.py patterns (stdlib before deps, atomic_write, tomllib)
+      - Respect .gitignore (no .env, data, volumes, .terraform)
+    tdd: true
+    test_command: "uv run pytest -q"
+  verify:
+    test_command: "uv run pytest -q"
+    build_command: "uv run ruff check ."
+    coverage_threshold: 0
+  archive:
+    - Warn before merging destructive deltas
+    - Merge deltas into openspec/specs/{domain}/spec.md on archive

@@ -1,0 +1,37 @@
+[project]
+name = "andry-de-zoomcamp"
+default_branch = "main"
+current_file = "CURRENT.md"
+python_version = "3.12"
+
+[session]
+check_commands = [
+  "uv run ruff check .",
+  "uv run pytest -q",
+]
+
+[remote]
+host = "uranus"
+root = "~/learning/andry-de-zoomcamp"
+compose_file = "infra/uranus/compose.yaml"
+project_name = "mnemosyne-staging"
+postgres_remote_port = 5432
+postgres_local_port = 15432
+object_remote_port = 9100
+object_console_remote_port = 9101
+
+[devices.PCrda]
+hostnames = ["pcrda"]
+role = "primary-x86"
+
+[devices.laptop]
+hostnames = ["laptop"]
+role = "mobile-x86"
+
+[devices.tecnologia04]
+hostnames = ["tecnologia04"]
+role = "institutional-x86"
+
+[devices.Uranus]
+hostnames = ["uranus", "uranus-core-vnic"]
+role = "staging-arm64"

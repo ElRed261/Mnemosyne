@@ -1,0 +1,57 @@
+/* Mnemosyne dark-only theme — Opencode style */
+Screen {
+    background: #0e0e10;
+    color: #e8e8ec;
+}
+
+Header {
+    background: #1a1a1e;
+    color: #e8e8ec;
+    dock: top;
+}
+
+Footer {
+    background: #1a1a1e;
+    color: #8a8a93;
+    dock: bottom;
+}
+
+Banner {
+    height: 1;
+    background: #1a1a1e;
+    color: #8a8a93;
+    padding: 0 1;
+}
+
+#dashboard {
+    height: 1fr;
+    layout: grid;
+    grid-size: 3 2;
+    grid-gutter: 1;
+}
+
+.panel {
+    background: #1a1a1e;
+    border: solid #2a2a30;
+    padding: 1;
+}
+
+.panel-title {
+    color: #7c5cff;
+    text-style: bold;
+}
+
+#logs {
+    height: 8;
+    layout: horizontal;
+}
+
+LogPanel {
+    height: 100%;
+    border: solid #2a2a30;
+    background: #0e0e10;
+}
+
+Static.ok { color: #2ecc71; }
+Static.err { color: #ff4d4d; }
+Static.muted { color: #8a8a93; }

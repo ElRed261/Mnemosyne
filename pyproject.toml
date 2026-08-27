@@ -1,0 +1,19 @@
+[project]
+name = "andry-de-zoomcamp"
+version = "0.1.0"
+description = "Laboratorio reproducible de Data Engineering Zoomcamp"
+requires-python = ">=3.12,<3.13"
+dependencies = ["textual>=0.80"]
+
+[dependency-groups]
+dev = [
+  "pytest>=8.3",
+  "ruff>=0.9",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
