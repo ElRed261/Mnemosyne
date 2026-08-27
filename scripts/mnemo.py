@@ -948,7 +948,20 @@ def maybe_launch_tui(argv: list[str]) -> int | None:
     """
     if "--no-tui" in argv:
         return None
-    if argv:
+    # Wrapper `mnemo` always injects --repo <path>; ignore it for TUI decision
+    filtered: list[str] = []
+    skip_next = False
+    for arg in argv:
+        if skip_next:
+            skip_next = False
+            continue
+        if arg == "--repo":
+            skip_next = True
+            continue
+        if arg.startswith("--repo="):
+            continue
+        filtered.append(arg)
+    if filtered:
         return None
     if not sys.stdin.isatty() or not sys.stdout.isatty():
         return None
