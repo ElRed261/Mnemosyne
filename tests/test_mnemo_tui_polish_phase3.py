@@ -46,10 +46,13 @@ class TestActionsNonBlocking:
 
         # mock subprocess.run to simulate doctor output without blocking
         def fake_run(cmd, capture_output=False, text=False, timeout=None, check=False, **kwargs):
-            # verify list-form and timeout 10
+            # verify list-form and timeout 10, absolute path, cwd set to repo
             assert isinstance(cmd, list), "must be list-form"
-            assert cmd[:4] == ["uv", "run", "python", "scripts/mnemo.py"], f"wrong prefix {cmd}"
+            assert cmd[:3] == ["uv", "run", "python"], f"wrong prefix {cmd}"
+            assert cmd[3].endswith("scripts/mnemo.py"), f"mnemo.py path should be absolute {cmd}"
+            assert Path(cmd[3]).is_absolute(), "mnemo.py must be absolute path"
             assert timeout == 10, f"timeout should be 10, got {timeout}"
+            assert kwargs.get("cwd"), "cwd must be repo root"
             # simulate success
             return MagicMock(returncode=0, stdout="doctor ok output", stderr="")
 

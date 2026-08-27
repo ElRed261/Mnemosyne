@@ -46,11 +46,15 @@ if HAS_TEXTUAL:
                 )
                 from mnemo_tui.services.tailscale import tailscale_status
 
+                # pony: repo discovery must work from any cwd (e.g. home) — fallback to install location, not just cwd
                 try:
                     root = resolve_repo_safe(None, required=False)
-                    root = root if root else Path.cwd()
+                    if root is None or not (root / "mnemosyne.toml").exists():
+                        fallback = Path(__file__).resolve().parents[3]
+                        root = fallback if (fallback / "mnemosyne.toml").exists() else Path.cwd()
                 except Exception:  # noqa: BLE001
-                    root = Path.cwd()
+                    fallback = Path(__file__).resolve().parents[3]
+                    root = fallback if (fallback / "mnemosyne.toml").exists() else Path.cwd()
                 sys_data = collect_system(root)
                 tools_data = collect_tools()
                 git_data = git_status_summary(root)
@@ -225,21 +229,35 @@ if HAS_TEXTUAL:
                 self.app.call_from_thread(self.app.log_general, f"> {label}")  # type: ignore[attr-defined]
             except Exception:  # noqa: BLE001,S110
                 pass
+            # pony: absolute repo path + cwd ensures mnemo runs from any launch dir (home vs repo)
+            from pathlib import Path as _P
+
+            repo_root = _P(__file__).resolve().parents[3]
+            if not (repo_root / "mnemosyne.toml").exists():
+                try:
+                    from mnemo_tui.services.system import resolve_repo_safe
+
+                    cand = resolve_repo_safe(None, required=False)
+                    if cand is not None and (cand / "mnemosyne.toml").exists():
+                        repo_root = cand
+                except Exception:  # noqa: BLE001,S110
+                    pass
+            mnemo_script = str(repo_root / "scripts" / "mnemo.py")
             # list-form command, never shell=True, 10s timeout per spec
             # map button labels to mnemo commands; device -> "device show"
             cmd_map = {
-                "doctor": ["uv", "run", "python", "scripts/mnemo.py", "doctor"],
-                "start": ["uv", "run", "python", "scripts/mnemo.py", "start"],
-                "end": ["uv", "run", "python", "scripts/mnemo.py", "end", "--help"],
-                "sync": ["uv", "run", "python", "scripts/mnemo.py", "sync"],
-                "bootstrap": ["uv", "run", "python", "scripts/mnemo.py", "bootstrap", "--help"],
-                "device": ["uv", "run", "python", "scripts/mnemo.py", "device", "show"],
+                "doctor": ["uv", "run", "python", mnemo_script, "doctor"],
+                "start": ["uv", "run", "python", mnemo_script, "start"],
+                "end": ["uv", "run", "python", mnemo_script, "end", "--help"],
+                "sync": ["uv", "run", "python", mnemo_script, "sync"],
+                "bootstrap": ["uv", "run", "python", mnemo_script, "bootstrap", "--help"],
+                "device": ["uv", "run", "python", mnemo_script, "device", "show"],
             }
-            cmd = cmd_map.get(label, ["uv", "run", "python", "scripts/mnemo.py", label])
+            cmd = cmd_map.get(label, ["uv", "run", "python", mnemo_script, label])
             try:
                 import subprocess  # noqa: WPS433
 
-                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, check=False)
+                result = subprocess.run(cmd, capture_output=True, text=True, timeout=10, check=False, cwd=str(repo_root))
                 if result.stdout:
                     for line in result.stdout.splitlines():
                         if line.strip():
