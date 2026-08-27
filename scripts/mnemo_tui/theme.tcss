@@ -65,6 +65,79 @@ Banner {
     padding-bottom: 1;
 }
 
+#roadmap {
+    height: 1fr;
+    layout: vertical;
+    padding: 1;
+    background: #0e0e10;
+}
+
+#roadmap-title {
+    color: #7c5cff;
+    text-style: bold;
+    padding-bottom: 1;
+}
+
+#roadmap-progress {
+    color: #e8e8ec;
+    padding-bottom: 1;
+}
+
+#roadmap-bar {
+    height: 1;
+    color: #7c5cff;
+    background: #2a2a30;
+    margin-bottom: 1;
+}
+
+#roadmap-next {
+    color: #8a8a93;
+    padding-bottom: 1;
+}
+
+#roadmap-main {
+    height: 1fr;
+    layout: horizontal;
+    grid-gutter: 1;
+    margin-bottom: 1;
+}
+
+#roadmap-list {
+    width: 1fr;
+    height: 100%;
+    background: #1a1a1e;
+    border: solid #2a2a30;
+}
+
+#roadmap-detail {
+    width: 1fr;
+    height: 100%;
+    background: #1a1a1e;
+    border: solid #2a2a30;
+}
+
+#roadmap-actions {
+    height: 3;
+    layout: horizontal;
+    padding: 1;
+    background: #1a1a1e;
+    border: solid #2a2a30;
+}
+
+ListView {
+    background: #1a1a1e;
+}
+
+ListItem {
+    padding: 0 1;
+    color: #e8e8ec;
+}
+
+ListView > ListItem.--highlight {
+    background: #7c5cff;
+    color: #0e0e10;
+}
+
 #logs {
     height: 8;
     layout: horizontal;

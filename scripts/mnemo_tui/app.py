@@ -16,6 +16,7 @@ try:
     from textual.widgets import Footer, Header
 
     from mnemo_tui.screens.dashboard import DashboardScreen
+    from mnemo_tui.screens.roadmap import RoadmapScreen
     from mnemo_tui.widgets.banner import Banner
     from mnemo_tui.widgets.log_panel import LogPanel
 
@@ -25,6 +26,7 @@ except Exception:  # noqa: BLE001
     App = object  # type: ignore[assignment,misc]
     ComposeResult = object  # type: ignore[assignment]
     Theme = object  # type: ignore[assignment]
+    RoadmapScreen = object  # type: ignore[assignment]
 
 
 def _ts() -> str:
@@ -39,6 +41,9 @@ if TEXTUAL_AVAILABLE:
         CSS_PATH = Path(__file__).with_name("theme.tcss")
         TITLE = "Mnemosyne"
         SUB_TITLE = "Data Engineering Zoomcamp"
+        BINDINGS = [  # noqa: RUF012  # ponytail: minimal bindings, roadmap toggle only
+            ("r", "show_roadmap", "Roadmap"),
+        ]
 
         def __init__(self, **kwargs):  # type: ignore[no-untyped-def]
             super().__init__(**kwargs)
@@ -48,6 +53,7 @@ if TEXTUAL_AVAILABLE:
             yield Header(show_clock=True)
             yield Banner(id="banner")
             yield DashboardScreen(id="dashboard")
+            yield RoadmapScreen(id="roadmap")  # type: ignore[call-arg]
             with Horizontal(id="logs"):
                 yield LogPanel(title="General Log", id="log-general")
                 yield LogPanel(title="Errors / Audit", id="log-errors")
@@ -77,6 +83,12 @@ if TEXTUAL_AVAILABLE:
             # ready log <1s — Mnemosyne ready — <device> (<os>/x64) — textual X — online bool
             try:
                 self.log_general(self._ready_message())
+            except Exception:  # noqa: BLE001,S110
+                pass
+            # ponytail: roadmap hidden initially, dashboard visible
+            try:
+                road = self.query_one("#roadmap")
+                road.display = False  # type: ignore[attr-defined]
             except Exception:  # noqa: BLE001,S110
                 pass
             self.check_online()
@@ -166,7 +178,57 @@ if TEXTUAL_AVAILABLE:
             except Exception:  # noqa: BLE001,S110
                 pass
 
+        def show_roadmap(self) -> None:
+            try:
+                dash = self.query_one("#dashboard")
+                road = self.query_one("#roadmap")
+                # if already visible -> refresh
+                if getattr(road, "display", False):
+                    if hasattr(road, "refresh_roadmap"):
+                        road.refresh_roadmap()  # type: ignore[attr-defined]
+                    return
+                dash.display = False  # type: ignore[attr-defined]
+                road.display = True  # type: ignore[attr-defined]
+                try:
+                    road.focus()
+                    lv = road.query_one("#roadmap-list")
+                    lv.focus()
+                except Exception:  # noqa: BLE001,S110
+                    pass
+                if hasattr(road, "refresh_roadmap"):
+                    road.refresh_roadmap()  # type: ignore[attr-defined]
+                self.log_general("Roadmap abierto — r refresca, d marca, u desmarca, q vuelve")
+            except Exception as exc:  # noqa: BLE001
+                self.log_error(f"No se pudo abrir roadmap: {exc}")
+
+        def hide_roadmap(self) -> None:
+            try:
+                dash = self.query_one("#dashboard")
+                road = self.query_one("#roadmap")
+                road.display = False  # type: ignore[attr-defined]
+                dash.display = True  # type: ignore[attr-defined]
+                try:
+                    dash.focus()
+                except Exception:  # noqa: BLE001,S110
+                    pass
+                self.log_general("Volver al dashboard")
+            except Exception as exc:  # noqa: BLE001
+                self.log_error(f"No se pudo volver: {exc}")
+
+        def action_show_roadmap(self) -> None:
+            self.show_roadmap()
+
+        def action_hide_roadmap(self) -> None:
+            self.hide_roadmap()
+
         def action_quit(self) -> None:
+            try:
+                road = self.query_one("#roadmap")
+                if getattr(road, "display", False):
+                    self.hide_roadmap()
+                    return
+            except Exception:  # noqa: BLE001,S110
+                pass
             self.exit(0)
 
 else:

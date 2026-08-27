@@ -26,7 +26,7 @@ if HAS_TEXTUAL:
             yield Static("Uranus\nLoading…", id="panel-uranus", classes="panel skeleton")
             with Vertical(id="panel-actions", classes="panel"):
                 yield Static("Quick Actions", classes="panel-title")
-                for label in ("doctor", "start", "end", "sync", "bootstrap", "device"):
+                for label in ("doctor", "start", "end", "sync", "bootstrap", "device", "roadmap"):
                     yield Button(label, id=f"btn-{label}")
 
         def on_mount(self) -> None:
@@ -210,6 +210,19 @@ if HAS_TEXTUAL:
 
         def on_button_pressed(self, event: Button.Pressed) -> None:  # type: ignore[no-untyped-def]
             label = str(event.button.label)
+            # ponytail: roadmap opens in-process screen, not subprocess
+            if label == "roadmap":
+                try:
+                    # prefer App action, fallback to show_roadmap
+                    if hasattr(self.app, "action_show_roadmap"):
+                        self.app.action_show_roadmap()  # type: ignore[attr-defined]
+                    elif hasattr(self.app, "show_roadmap"):
+                        self.app.show_roadmap()  # type: ignore[attr-defined]
+                    else:
+                        self.app.log_general("Roadmap")  # type: ignore[attr-defined]
+                except Exception as exc:  # noqa: BLE001
+                    self._handle_error(f"roadmap open failed: {exc}")
+                return
             # ponytail: delegate to worker, keep UI responsive <1s
             try:
                 self.run_action(label)
@@ -252,6 +265,7 @@ if HAS_TEXTUAL:
                 "sync": ["uv", "run", "python", mnemo_script, "sync"],
                 "bootstrap": ["uv", "run", "python", mnemo_script, "bootstrap", "--help"],
                 "device": ["uv", "run", "python", mnemo_script, "device", "show"],
+                "roadmap": ["uv", "run", "python", mnemo_script, "roadmap", "show"],
             }
             cmd = cmd_map.get(label, ["uv", "run", "python", mnemo_script, label])
             try:
