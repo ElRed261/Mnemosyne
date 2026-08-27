@@ -1,19 +1,32 @@
-/* Mnemosyne dark-only theme — Opencode style */
+/* Mnemosyne dark-only tokens #7c5cff #0e0e10 #1a1a1e #2ecc71 #ff4d4d — impeccable dark, 150ms */
+$primary: #7c5cff;
+$background: #0e0e10;
+$surface: #1a1a1e;
+$success: #2ecc71;
+$error: #ff4d4d;
+$muted: #8a8a93;
+$border: #2a2a30;
+$text: #e8e8ec;
+
 Screen {
     background: #0e0e10;
     color: #e8e8ec;
+    layers: base overlay;
 }
 
 Header {
     background: #1a1a1e;
     color: #e8e8ec;
     dock: top;
+    height: 1;
+    content-align: center middle;
 }
 
 Footer {
     background: #1a1a1e;
     color: #8a8a93;
     dock: bottom;
+    height: 1;
 }
 
 Banner {
@@ -21,6 +34,7 @@ Banner {
     background: #1a1a1e;
     color: #8a8a93;
     padding: 0 1;
+    border-bottom: solid #2a2a30;
 }
 
 #dashboard {
@@ -28,30 +42,89 @@ Banner {
     layout: grid;
     grid-size: 3 2;
     grid-gutter: 1;
+    padding: 1;
+    background: #0e0e10;
 }
 
 .panel {
     background: #1a1a1e;
     border: solid #2a2a30;
+    border-title-color: #7c5cff;
     padding: 1;
+    transition: border 150ms, background 150ms;
+}
+
+.panel:focus {
+    border: solid #7c5cff;
+    background: #1e1e26;
 }
 
 .panel-title {
     color: #7c5cff;
     text-style: bold;
+    padding-bottom: 1;
 }
 
 #logs {
     height: 8;
     layout: horizontal;
+    grid-gutter: 1;
+    padding: 0 1;
 }
 
 LogPanel {
     height: 100%;
     border: solid #2a2a30;
     background: #0e0e10;
+    padding: 0 1;
+}
+
+LogPanel:focus {
+    border: solid #7c5cff;
 }
 
 Static.ok { color: #2ecc71; }
 Static.err { color: #ff4d4d; }
 Static.muted { color: #8a8a93; }
+
+/* skeleton — 150ms opacity transition (textual has no @keyframes, use transition) */
+.skeleton {
+    color: #8a8a93;
+    background: #1a1a1e;
+    opacity: 0.7;
+}
+
+Button {
+    background: #1a1a1e;
+    color: #e8e8ec;
+    border: solid #2a2a30;
+    padding: 0 1;
+    margin: 0 1 0 0;
+    min-width: 12;
+    transition: background 150ms, border 150ms, color 150ms;
+}
+
+Button:hover {
+    background: #2a2a30;
+    border: solid #7c5cff;
+}
+
+Button:focus {
+    border: solid #7c5cff;
+    background: #7c5cff;
+    color: #0e0e10;
+    text-style: bold;
+}
+
+Button.-active {
+    background: #7c5cff;
+    color: #0e0e10;
+}
+
+/* markdown system panel */
+Markdown {
+    background: #1a1a1e;
+    color: #e8e8ec;
+    padding: 1;
+    border: solid #2a2a30;
+}

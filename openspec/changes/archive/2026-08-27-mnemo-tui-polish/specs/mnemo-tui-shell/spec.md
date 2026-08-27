@@ -1,9 +1,6 @@
-# mnemo-tui-shell Specification
+# Delta for mnemo-tui-shell
 
-## Purpose
-Dark-only shell: TTY no-args → TUI; else CLI pure.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Entrypoint and Textual Guard
 
@@ -14,6 +11,8 @@ The system MUST launch TUI only TTY no-args without --no-tui; else CLI; without 
 - GIVEN TTY no args textual installed
 - WHEN run
 - THEN TUI dark and on_mount fires
+
+## ADDED Requirements
 
 ### Requirement: LogsFunctional
 

@@ -1,9 +1,6 @@
-# mnemo-tui-onboarding Specification
+# Delta for mnemo-tui-onboarding
 
-## Purpose
-GitHub + Uranus onboarding with gated auth, repo create/link, key validation.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: GitHub Auth and Gate
 

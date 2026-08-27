@@ -1,9 +1,6 @@
-# mnemo-tui-dashboard Specification
+# Delta for mnemo-tui-dashboard
 
-## Purpose
-Dashboard: five panels + banner + dual logs.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: PanelsReal
 
