@@ -8,7 +8,7 @@ requirements: 7/7
 scenarios: 16/16
 test_command: uv run pytest -q
 test_exit_code: 0
-test_output_hash: sha256:270da6fb46dcaab9a287706023ba247d07d40dd3c9dc26917a7969d97025f6a7
+test_output_hash: sha256:07d2b90b7829262ca2a2570bda79ad246600fec8004d6599a30abaaf6c6876a0
 build_command: uv run ruff check .
 build_exit_code: 0
 build_output_hash: sha256:82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18
@@ -47,9 +47,9 @@ hash: sha256:82b3e6a6c090a57601d22943bd23fca9218d1031dbe5a7b754092f9a156b4f18
 $ uv run pytest -q
 .............................................................. [ 83%]
 ............                                                             [100%]
-74 passed, 10 subtests passed in 0.97s
+74 passed, 10 subtests passed in 1.02s
 exit: 0
-hash: sha256:270da6fb46dcaab9a287706023ba247d07d40dd3c9dc26917a7969d97025f6a7
+hash: sha256:07d2b90b7829262ca2a2570bda79ad246600fec8004d6599a30abaaf6c6876a0
 ```
 
 Focused harnesses:
