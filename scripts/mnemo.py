@@ -939,6 +939,396 @@ def cmd_remote(args: argparse.Namespace) -> int:
     return ssh_run(host, command, check=args.action in {"up", "stop"}).returncode
 
 
+# ---- Roadmap Fase 1 (stdlib-only, ponytail minimal) ----
+# ponytail: naive markdown parser — regex for headers + checkbox, upgrade if roadmap structure diverges
+ROADMAP_MODULE_RE = re.compile(r"^(B0|M1A|M1B|M2|T1|M3|M4|M5|M6|M7|PF|X1|X2)\b", re.IGNORECASE)
+ROADMAP_CHECKBOX_RE = re.compile(r"^\s*-\s*\[( |x|X)\]\s*(.+)$")
+ROADMAP_HEADER_RE = re.compile(r"^##\s+(.+)$")
+ROADMAP_LESSON_RE = re.compile(r"^###\s+(.+)$")
+ROADMAP_TYPE_RE = re.compile(r"\*\*Tipo:\*\*\s*([^.\n]+)")
+ROADMAP_STEP_RE = re.compile(r"^[a-z0-9]+-\d{3}$")
+
+
+def _roadmap_file(root: Path) -> Path:
+    return Path(root).resolve() / "docs" / "ROADMAP.md"
+
+
+def _progress_file(root: Path) -> Path:
+    return Path(root).resolve() / ".mnemosyne" / "progress.json"
+
+
+def _validate_step_id(step_id: str) -> str:
+    raw = step_id.strip().lower()
+    if not raw:
+        raise MnemoError("step_id requerido")
+    if any(c in raw for c in [";", "&", "|", "`", "$", "(", ")"]):
+        raise MnemoError("step_id inválido")
+    if not ROADMAP_STEP_RE.fullmatch(raw):
+        raise MnemoError(f"step_id inválido `{step_id}` — esperado formato b0-001")
+    return raw
+
+
+def load_roadmap(repo_root: Path) -> dict:
+    raw = str(repo_root)
+    if any(c in raw for c in [";", "&", "|", "`", "$"]):
+        raise MnemoError("ruta de repo inválida")
+    if ".." in raw.split("/"):
+        raise MnemoError("ruta de repo inválida")
+    root = Path(repo_root).resolve()
+    path = _roadmap_file(root)
+    if not path.exists():
+        raise MnemoError(f"no se encontró ROADMAP en {path}")
+    text = path.read_text(encoding="utf-8")
+    modules: list[dict] = []
+    steps_flat: list[dict] = []
+    current: dict | None = None
+    curr_lesson: dict | None = None
+    counters: dict[str, int] = {}
+    lines = text.splitlines()
+    for idx, line in enumerate(lines):
+        hm = ROADMAP_HEADER_RE.match(line)
+        if hm:
+            title = hm.group(1).strip()
+            mm = ROADMAP_MODULE_RE.match(title)
+            if mm:
+                rid = mm.group(1).upper()
+                nid = rid.lower()
+                current = {
+                    "id": nid,
+                    "raw_id": rid,
+                    "title": title,
+                    "type": "",
+                    "steps": [],
+                    "lessons": [],
+                }
+                modules.append(current)
+                curr_lesson = None
+                counters.setdefault(nid, 0)
+                window = "\n".join(lines[idx : idx + 4])
+                tm = ROADMAP_TYPE_RE.search(window)
+                if tm:
+                    current["type"] = tm.group(1).strip().lower()
+                continue
+            else:
+                current = None
+                curr_lesson = None
+                continue
+        if current is not None:
+            lm = ROADMAP_LESSON_RE.match(line)
+            if lm:
+                t = lm.group(1).strip()
+                curr_lesson = {"title": t, "steps": []}
+                current["lessons"].append(curr_lesson)
+                continue
+            cb = ROADMAP_CHECKBOX_RE.match(line)
+            if cb:
+                checked = cb.group(1).lower() == "x"
+                t_raw = cb.group(2).strip()
+                nid = current["id"]
+                counters[nid] = counters.get(nid, 0) + 1
+                sid = f"{nid}-{counters[nid]:03d}"
+                section = curr_lesson["title"] if curr_lesson else current["title"]
+                step = {
+                    "id": sid,
+                    "title": t_raw,
+                    "checked": checked,
+                    "section": section,
+                    "module": nid,
+                }
+                current["steps"].append(step)
+                if curr_lesson is not None:
+                    curr_lesson["steps"].append(step)
+                steps_flat.append(step)
+    return {"modules": modules, "steps": steps_flat, "total": len(steps_flat)}
+
+
+def load_progress(repo_root: Path) -> dict:
+    root = Path(repo_root).resolve()
+    path = _progress_file(root)
+    if not path.exists():
+        return {"done": [], "updated": None}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+        if not isinstance(data, dict):
+            return {"done": [], "updated": None}
+        done = data.get("done", [])
+        if not isinstance(done, list):
+            done = []
+        cleaned: list[str] = []
+        seen: set[str] = set()
+        for item in done:
+            if not isinstance(item, str):
+                continue
+            nid = item.strip().lower()
+            if not nid or nid in seen:
+                continue
+            if ROADMAP_STEP_RE.fullmatch(nid):
+                cleaned.append(nid)
+                seen.add(nid)
+        return {"done": cleaned, "updated": data.get("updated")}
+    except (OSError, json.JSONDecodeError, UnicodeDecodeError):
+        return {"done": [], "updated": None}
+
+
+def save_progress(repo_root: Path, data: dict) -> None:
+    root = Path(repo_root).resolve()
+    path = _progress_file(root)
+    done = data.get("done", []) if isinstance(data, dict) else []
+    seen: set[str] = set()
+    uniq: list[str] = []
+    for item in done if isinstance(done, list) else []:
+        if not isinstance(item, str):
+            continue
+        nid = item.strip().lower()
+        if nid and nid not in seen and ROADMAP_STEP_RE.fullmatch(nid):
+            uniq.append(nid)
+            seen.add(nid)
+    try:
+        roadmap = load_roadmap(root)
+        order = {s["id"]: i for i, s in enumerate(roadmap["steps"])}
+        uniq.sort(key=lambda x: order.get(x, 9999))
+    except Exception:  # noqa: BLE001
+        uniq.sort()
+    payload = {
+        "done": uniq,
+        "updated": data.get("updated")
+        if isinstance(data, dict) and data.get("updated")
+        else dt.datetime.now(dt.UTC).isoformat(),
+    }
+    content = json.dumps(payload, ensure_ascii=False, indent=2) + "\n"
+    atomic_write(path, content)
+
+
+def get_next_pending(progress: dict, roadmap: dict) -> dict | None:
+    done = set(progress.get("done", [])) if isinstance(progress, dict) else set()
+    for step in roadmap.get("steps", []):
+        if step["id"] not in done:
+            return step
+    return None
+
+
+def get_progress(progress: dict, roadmap: dict) -> dict:
+    steps = roadmap.get("steps", [])
+    modules = roadmap.get("modules", [])
+    total = len(steps)
+    done_set = set(progress.get("done", [])) if isinstance(progress, dict) else set()
+    done = sum(1 for s in steps if s["id"] in done_set)
+    pct = round(done / total * 100, 1) if total else 0.0
+    by_module: list[dict] = []
+    for mod in modules:
+        m_steps = mod.get("steps", [])
+        m_total = len(m_steps)
+        m_done = sum(1 for s in m_steps if s["id"] in done_set)
+        m_pct = round(m_done / m_total * 100, 1) if m_total else 0.0
+        if m_total == 0:
+            status = "vacío"
+        elif m_done == 0:
+            status = "pendiente"
+        elif m_done == m_total:
+            status = "completado"
+        else:
+            status = "en_progreso"
+        by_module.append(
+            {
+                "id": mod["id"],
+                "title": mod["title"],
+                "type": mod.get("type", ""),
+                "total": m_total,
+                "done": m_done,
+                "pct": m_pct,
+                "status": status,
+            }
+        )
+    return {"total": total, "done": done, "pct": pct, "by_module": by_module}
+
+
+def mark_done(repo_root: Path, step_id: str) -> dict:
+    nid = _validate_step_id(step_id)
+    root = Path(repo_root).resolve()
+    roadmap = load_roadmap(root)
+    valid = {s["id"] for s in roadmap["steps"]}
+    if nid not in valid:
+        raise MnemoError(f"paso desconocido `{step_id}`")
+    progress = load_progress(root)
+    done = progress.get("done", [])
+    if nid not in done:
+        done.append(nid)
+        order = {s["id"]: i for i, s in enumerate(roadmap["steps"])}
+        done = sorted(set(done), key=lambda x: order.get(x, 9999))
+    payload = {"done": done, "updated": dt.datetime.now(dt.UTC).isoformat()}
+    save_progress(root, payload)
+    return payload
+
+
+def mark_undone(repo_root: Path, step_id: str) -> dict:
+    nid = _validate_step_id(step_id)
+    root = Path(repo_root).resolve()
+    try:
+        roadmap = load_roadmap(root)
+        valid = {s["id"] for s in roadmap["steps"]}
+        if nid not in valid:
+            raise MnemoError(f"paso desconocido `{step_id}`")
+    except MnemoError:
+        raise
+    except Exception:  # noqa: BLE001, S110
+        pass
+    progress = load_progress(root)
+    done = [d for d in progress.get("done", []) if d != nid]
+    payload = {"done": done, "updated": dt.datetime.now(dt.UTC).isoformat()}
+    save_progress(root, payload)
+    return payload
+
+
+def _roadmap_update_current(root: Path, completed: dict, nxt: dict | None) -> None:
+    try:
+        config = load_config(root)
+    except MnemoError:
+        return
+    path = current_path(root, config)
+    # next_goal / command for CURRENT.md
+    if nxt:
+        next_goal = f"{nxt['id']}: {nxt['title']}"
+        command = nxt.get("section", nxt["title"])
+        expected = f"Verificar avance de {nxt['id']} y preparar evidencia"
+    else:
+        next_goal = "Roadmap completado — revisar proyecto final"
+        command = "./mnemo roadmap show"
+        expected = "Revisión final del pipeline y documentación"
+    done_text = f"Completado {completed['id']}: {completed['title']}"
+    try:
+        device, role = detect_device(root, config)
+    except Exception:  # noqa: BLE001
+        import socket as _sock
+
+        device, role = _sock.gethostname(), "unknown"
+    session = next_session_id(path) if path.exists() else "S001"
+    notes = f"Actualizado automáticamente tras marcar {completed['id']}"
+    sync_state = "checkpoint local — actualizado por roadmap"
+    content = render_current(
+        session=session,
+        device=device,
+        role=role,
+        done=done_text,
+        next_goal=next_goal,
+        command=command,
+        expected=expected,
+        notes=notes,
+        sync_state=sync_state,
+    )
+    atomic_write(path, content)
+    ok(f"{path.name} actualizado con siguiente paso {nxt['id'] if nxt else 'completado'}")
+
+
+def cmd_roadmap_show(args: argparse.Namespace) -> int:
+    root = resolve_repo(args.repo)
+    assert root is not None
+    roadmap = load_roadmap(root)
+    progress = load_progress(root)
+    stats = get_progress(progress, roadmap)
+    if args.json:
+        print(json.dumps(stats, ensure_ascii=False, indent=2))
+        return 0
+    print(f"Progreso global: {stats['done']}/{stats['total']} ({stats['pct']}%)")
+    print("-" * 72)
+    for mod in stats["by_module"]:
+        print(
+            f"{mod['id']:5} {mod['title'][:45]:45} {mod['done']:3}/{mod['total']:<3} "
+            f"{mod['pct']:5.1f}% {mod['status']}"
+        )
+    return 0
+
+
+def cmd_roadmap_next(args: argparse.Namespace) -> int:
+    root = resolve_repo(args.repo)
+    assert root is not None
+    roadmap = load_roadmap(root)
+    progress = load_progress(root)
+    nxt = get_next_pending(progress, roadmap)
+    if nxt is None:
+        msg = "¡Roadmap completado! No hay pasos pendientes."
+        if args.json:
+            print(json.dumps({"next": None, "msg": msg}, ensure_ascii=False, indent=2))
+        else:
+            ok(msg)
+        return 0
+    if args.json:
+        print(json.dumps({"next": nxt}, ensure_ascii=False, indent=2))
+        return 0
+    print(f"Siguiente: {nxt['id']}: {nxt['title']}")
+    print(f"Sección: {nxt['section']}")
+    print(f"Módulo: {nxt['module']}")
+    return 0
+
+
+def cmd_roadmap_progress(args: argparse.Namespace) -> int:
+    root = resolve_repo(args.repo)
+    assert root is not None
+    roadmap = load_roadmap(root)
+    progress = load_progress(root)
+    stats = get_progress(progress, roadmap)
+    if args.json:
+        print(json.dumps(stats, ensure_ascii=False, indent=2))
+        return 0
+    print(f"Progreso: {stats['done']}/{stats['total']} ({stats['pct']}%)")
+    return 0
+
+
+def cmd_roadmap_done(args: argparse.Namespace) -> int:
+    root = resolve_repo(args.repo)
+    assert root is not None
+    step_id = _validate_step_id(args.step_id)
+    # load before to capture completed step details
+    roadmap = load_roadmap(root)
+    step_map = {s["id"]: s for s in roadmap["steps"]}
+    if step_id not in step_map:
+        raise MnemoError(f"paso desconocido `{args.step_id}`")
+    completed = step_map[step_id]
+    mark_done(root, step_id)
+    ok(f"marcado como completado: {step_id} — {completed['title']}")
+    # update CURRENT.md atomically (simple: set próximo objetivo to next pending)
+    progress = load_progress(root)
+    nxt = get_next_pending(progress, roadmap)
+    try:
+        _roadmap_update_current(root, completed, nxt)
+    except Exception as exc:  # noqa: BLE001
+        warn(f"no se pudo actualizar CURRENT.md: {exc}")
+    if nxt:
+        print(f"Próximo: {nxt['id']}: {nxt['title']}")
+    else:
+        print("¡Roadmap completado!")
+    return 0
+
+
+def cmd_roadmap_undo(args: argparse.Namespace) -> int:
+    root = resolve_repo(args.repo)
+    assert root is not None
+    step_id = _validate_step_id(args.step_id)
+    roadmap = load_roadmap(root)
+    step_map = {s["id"]: s for s in roadmap["steps"]}
+    if step_id not in step_map:
+        raise MnemoError(f"paso desconocido `{args.step_id}`")
+    mark_undone(root, step_id)
+    ok(f"marcado como pendiente: {step_id} — {step_map[step_id]['title']}")
+    return 0
+
+
+def cmd_roadmap_verify(args: argparse.Namespace) -> int:
+    root = resolve_repo(args.repo)
+    assert root is not None
+    try:
+        config = load_config(root)
+    except MnemoError:
+        config = {}
+    # reuse run_checks alias to check
+    try:
+        run_checks(root, config)
+        ok("verificación completada")
+        return 0
+    except MnemoError as exc:
+        print(f"ERROR: {exc}", file=sys.stderr)
+        return 2
+
+
 def maybe_launch_tui(argv: list[str]) -> int | None:
     """Decide whether to launch the dark TUI.
 
@@ -1048,6 +1438,34 @@ def build_parser() -> argparse.ArgumentParser:
     remote.add_argument("action", choices=["status", "up", "stop", "logs", "tunnel"])
     remote.add_argument("service", nargs="?", choices=["datalake", "postgres"])
     remote.set_defaults(handler=cmd_remote)
+
+    roadmap = subparsers.add_parser("roadmap", help="Seguimiento del roadmap curricular")
+    road_sub = roadmap.add_subparsers(dest="roadmap_action", required=True)
+
+    road_show = road_sub.add_parser("show", help="Mostrar tabla de módulos")
+    road_show.add_argument("--json", action="store_true", help="Salida JSON")
+    road_show.set_defaults(handler=cmd_roadmap_show)
+
+    road_next = road_sub.add_parser("next", help="Mostrar siguiente paso pendiente")
+    road_next.add_argument("--json", action="store_true", help="Salida JSON")
+    road_next.set_defaults(handler=cmd_roadmap_next)
+
+    road_progress = road_sub.add_parser("progress", help="Resumen de progreso")
+    road_progress.add_argument("--json", action="store_true", help="Salida JSON")
+    road_progress.set_defaults(handler=cmd_roadmap_progress)
+
+    road_done = road_sub.add_parser("done", help="Marcar paso como completado")
+    road_done.add_argument("step_id", help="ID del paso (ej. b0-001)")
+    road_done.add_argument("--yes", action="store_true", help="No pedir confirmación")
+    road_done.set_defaults(handler=cmd_roadmap_done)
+
+    road_undo = road_sub.add_parser("undo", help="Revertir paso a pendiente")
+    road_undo.add_argument("step_id", help="ID del paso (ej. b0-001)")
+    road_undo.set_defaults(handler=cmd_roadmap_undo)
+
+    road_verify = road_sub.add_parser("verify", help="Verificación rápida (ruff + pytest)")
+    road_verify.set_defaults(handler=cmd_roadmap_verify)
+
     return parser
 
 

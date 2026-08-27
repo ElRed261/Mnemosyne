@@ -1,6 +1,6 @@
 #!/usr/bin/env sh
 set -eu
-repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")" && pwd)
+repo_dir=$(CDPATH= cd -- "$(dirname -- "$(readlink -f -- "$0" 2>/dev/null || realpath -- "$0" 2>/dev/null || echo "$0")")" && pwd)
 # Prefer .venv python (has textual) if available, else system python3 (stdlib CLI)
 if [ -x "$repo_dir/.venv/bin/python" ]; then
   exec "$repo_dir/.venv/bin/python" "$repo_dir/scripts/mnemo.py" --repo "$repo_dir" "$@"
