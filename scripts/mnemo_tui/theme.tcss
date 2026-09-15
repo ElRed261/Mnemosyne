@@ -2,6 +2,9 @@
 $primary: #7c5cff;
 $background: #0e0e10;
 $surface: #1a1a1e;
+$panel-bg: #141417;
+$accent: #7c5cff;
+$text-muted: #8a8a93;
 $success: #2ecc71;
 $error: #ff4d4d;
 $muted: #8a8a93;
@@ -41,21 +44,23 @@ Banner {
     height: 1fr;
     layout: grid;
     grid-size: 3 2;
-    grid-gutter: 1;
-    padding: 1;
-    background: #0e0e10;
+    grid-gutter: 1 2;
+    padding: 1 2;
+    background: $background;
 }
 
 .panel {
-    background: #1a1a1e;
-    border: solid #2a2a30;
-    border-title-color: #7c5cff;
-    padding: 1;
+    background: $surface;
+    border: solid $border;
+    border-title-color: $accent;
+    padding: 1 2;
+    margin-bottom: 1;
     transition: border 150ms, background 150ms;
 }
 
 .panel:focus {
-    border: solid #7c5cff;
+    border: solid $accent;
+    border-left: thick $accent;
     background: #1e1e26;
 }
 
@@ -200,4 +205,38 @@ Markdown {
     color: #e8e8ec;
     padding: 1;
     border: solid #2a2a30;
+}
+
+/* command palette + filter + loading (monochrome-first, single accent) */
+#roadmap-filter {
+    background: $panel-bg;
+    color: $text;
+    border: solid $border;
+    border-left: thick $accent;
+    padding: 0 1;
+    margin-bottom: 1;
+    height: 3;
+}
+
+#roadmap-filter:focus {
+    border: solid $accent;
+    border-left: thick $accent;
+}
+
+#dashboard-loading {
+    height: 1;
+    color: $text-muted;
+    margin-bottom: 1;
+}
+
+#btn-retry {
+    margin-top: 1;
+}
+
+Toast {
+    background: $surface;
+    color: $text;
+    border: solid $border;
+    border-left: thick $accent;
+    padding: 0 1;
 }

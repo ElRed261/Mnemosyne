@@ -51,10 +51,13 @@ def validate_key_path(key: str) -> str | None:
 if HAS_TEXTUAL:
 
     class OnboardingScreen(Container):  # type: ignore[valid-type]
+        # ponytail: stub + CTA kept simple; full TabbedContent/Collapsible skipped (no daily need)
+
         def compose(self) -> ComposeResult:
             yield Static("Connect GitHub", classes="panel-title")
             yield Static("Pick SSH key", classes="panel-title")
             yield Static("Uranus", classes="panel-title")
+            yield Static("Run ./mnemo onboard --help to begin, then press r for roadmap.", classes="muted")
 
 else:
 

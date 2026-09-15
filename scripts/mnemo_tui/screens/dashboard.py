@@ -4,8 +4,14 @@ try:
     from textual import work
     from textual.app import ComposeResult
     from textual.containers import Container, Vertical
-    from textual.widgets import Button, Markdown, Static
+    from textual.widgets import Button, LoadingIndicator, Markdown, Static
 
+    try:
+        from textual.widgets import DataTable  # noqa: F401  # reserved, ListView kept for tests
+
+        HAS_DATATABLE = True
+    except Exception:  # noqa: BLE001
+        HAS_DATATABLE = False
 
     HAS_TEXTUAL = True
 except Exception:  # noqa: BLE001
@@ -13,11 +19,22 @@ except Exception:  # noqa: BLE001
     ComposeResult = object  # type: ignore[assignment]
     Container = object  # type: ignore[assignment]
     Static = object  # type: ignore[assignment]
+    HAS_DATATABLE = False
 
 
 if HAS_TEXTUAL:
 
     class DashboardScreen(Container):  # type: ignore[valid-type]
+        def __init__(self, **kwargs):  # type: ignore[no-untyped-def]
+            super().__init__(**kwargs)
+            self._loaded: dict[str, bool] = {}
+
+        def _toast(self, message: str, *, severity: str = "information") -> None:
+            try:
+                self.app.notify(message, severity=severity)  # type: ignore[attr-defined]
+            except Exception:  # noqa: BLE001,S110
+                pass
+
         def compose(self) -> ComposeResult:
             # ponytail: native Markdown for System (rich), Static for rest — minimal deps
             yield Markdown("**System**\n\nLoading…", id="panel-system", classes="panel skeleton")
@@ -26,8 +43,15 @@ if HAS_TEXTUAL:
             yield Static("Uranus\nLoading…", id="panel-uranus", classes="panel skeleton")
             with Vertical(id="panel-actions", classes="panel"):
                 yield Static("Quick Actions", classes="panel-title")
+                try:
+                    yield LoadingIndicator(id="dashboard-loading")
+                except Exception:  # noqa: BLE001,S110
+                    pass
                 for label in ("doctor", "start", "end", "sync", "bootstrap", "device", "roadmap"):
                     yield Button(label, id=f"btn-{label}")
+                retry = Button("Retry loading (r)", id="btn-retry", variant="warning")
+                retry.display = False
+                yield retry
 
         def on_mount(self) -> None:
             self.refresh_panels()
@@ -101,6 +125,7 @@ if HAS_TEXTUAL:
                 ]
                 w.update("\n".join(lines))
                 w.remove_class("skeleton")
+                self._loaded["system"] = True
             except Exception:  # noqa: BLE001,S110
                 pass
 
@@ -118,6 +143,7 @@ if HAS_TEXTUAL:
                         rows.append(f"  → Install: {name} preview")
                 w.update("\n".join(rows))
                 w.remove_class("skeleton")
+                self._loaded["tools"] = True
             except Exception:  # noqa: BLE001,S110
                 pass
 
@@ -138,6 +164,7 @@ if HAS_TEXTUAL:
                 ]
                 w.update("\n".join(rows))
                 w.remove_class("skeleton")
+                self._loaded["git"] = True
             except Exception:  # noqa: BLE001,S110
                 pass
 
@@ -191,6 +218,7 @@ if HAS_TEXTUAL:
                     ]
                 w.update("\n".join(rows))
                 w.remove_class("skeleton")
+                self._loaded["uranus"] = True
             except Exception:  # noqa: BLE001,S110
                 pass
 
@@ -201,15 +229,48 @@ if HAS_TEXTUAL:
                     w.remove_class("skeleton")
                 except Exception:  # noqa: BLE001,S110
                     pass
+            # hide spinner; empty-state CTA if any panel never loaded (fixes eternal Loading)
+            try:
+                loader = self.query_one("#dashboard-loading")
+                loader.display = False  # type: ignore[attr-defined]
+            except Exception:  # noqa: BLE001,S110
+                pass
+            try:
+                missing = [k for k in ("system", "tools", "git", "uranus") if not self._loaded.get(k)]
+                retry = self.query_one("#btn-retry")
+                if missing:
+                    retry.display = True  # type: ignore[attr-defined]
+                    self._toast(f"Panels incomplete ({', '.join(missing)}) — Retry available", severity="warning")
+                else:
+                    retry.display = False  # type: ignore[attr-defined]
+            except Exception:  # noqa: BLE001,S110
+                pass
 
         def _handle_error(self, msg: str) -> None:
             try:
                 self.app.log_error(msg)  # type: ignore[attr-defined]
             except Exception:  # noqa: BLE001,S110
                 pass
+            self._toast(msg, severity="error")
 
         def on_button_pressed(self, event: Button.Pressed) -> None:  # type: ignore[no-untyped-def]
             label = str(event.button.label)
+            bid = str(getattr(event.button, "id", "") or "")
+            # empty-state CTA: retry panel load
+            if bid == "btn-retry" or label.lower().startswith("retry"):
+                try:
+                    loader = self.query_one("#dashboard-loading")
+                    loader.display = True  # type: ignore[attr-defined]
+                except Exception:  # noqa: BLE001,S110
+                    pass
+                try:
+                    event.button.display = False  # type: ignore[attr-defined]
+                except Exception:  # noqa: BLE001,S110
+                    pass
+                self._loaded.clear()
+                self._toast("Reloading panels…")
+                self.refresh_panels()
+                return
             # ponytail: roadmap opens in-process screen, not subprocess
             if label == "roadmap":
                 try:
@@ -282,14 +343,19 @@ if HAS_TEXTUAL:
                             self.app.call_from_thread(self.app.log_error, line)  # type: ignore[attr-defined]
                 if result.returncode != 0 and not result.stderr and not result.stdout:
                     self.app.call_from_thread(self.app.log_error, f"{label} failed code {result.returncode}")  # type: ignore[attr-defined]
+                    self.app.call_from_thread(self._toast, f"{label} failed ({result.returncode})", severity="error")  # type: ignore[attr-defined]
+                elif result.returncode != 0:
+                    self.app.call_from_thread(self._toast, f"{label} exited {result.returncode}", severity="warning")  # type: ignore[attr-defined]
             except subprocess.TimeoutExpired:
                 try:
                     self.app.call_from_thread(self.app.log_error, f"{label} timed out (10s)")  # type: ignore[attr-defined]
+                    self.app.call_from_thread(self._toast, f"{label} timed out (10s)", severity="error")  # type: ignore[attr-defined]
                 except Exception:  # noqa: BLE001,S110
                     pass
             except Exception as exc:  # noqa: BLE001
                 try:
                     self.app.call_from_thread(self.app.log_error, str(exc))  # type: ignore[attr-defined]
+                    self.app.call_from_thread(self._toast, f"{label} failed", severity="error")  # type: ignore[attr-defined]
                 except Exception:  # noqa: BLE001,S110
                     pass
 

@@ -7,7 +7,7 @@ try:
     from textual import work
     from textual.app import ComposeResult
     from textual.containers import Container, Horizontal
-    from textual.widgets import Button, Label, ListItem, ListView, Markdown, Static
+    from textual.widgets import Button, Input, Label, ListItem, ListView, Markdown, Static
 
     try:
         from textual.widgets import ProgressBar  # type: ignore[attr-defined]
@@ -29,7 +29,7 @@ except Exception:  # noqa: BLE001
 if HAS_TEXTUAL:
 
     class RoadmapScreen(Container):  # type: ignore[valid-type]
-        """Roadmap checklist B0..PF — ponytail: ListView + Label, no Tree/DataTable."""
+        """Roadmap checklist B0..PF — ponytail: ListView + Input filter kept (DataTable skipped, tests pin ListView)."""
 
         BINDINGS = [  # noqa: RUF012
             ("d", "mark_done", "Marcar hecho"),
@@ -47,8 +47,15 @@ if HAS_TEXTUAL:
             self._stats: dict | None = None
             self._next_pending: dict | None = None
             self._selected_id: str | None = None
+            self._filter: str = ""
             try:
                 self.display = False  # type: ignore[attr-defined]  # hidden until App shows
+            except Exception:  # noqa: BLE001,S110
+                pass
+
+        def _toast(self, message: str, *, severity: str = "information") -> None:
+            try:
+                self.app.notify(message, severity=severity)  # type: ignore[attr-defined]
             except Exception:  # noqa: BLE001,S110
                 pass
 
@@ -61,6 +68,11 @@ if HAS_TEXTUAL:
                 except Exception:  # noqa: BLE001,S110
                     pass
             yield Static("", id="roadmap-next", classes="muted")
+            # ponytail: Input fuzzy filter over ListView (DataTable would break pilot tests)
+            try:
+                yield Input(placeholder="Filter steps… (/ to focus)", id="roadmap-filter")
+            except Exception:  # noqa: BLE001,S110
+                pass
             with Horizontal(id="roadmap-main"):
                 yield ListView(id="roadmap-list", classes="panel")
                 yield Markdown("Selecciona un paso…", id="roadmap-detail", classes="panel")
@@ -189,11 +201,25 @@ if HAS_TEXTUAL:
                     first = roadmap["steps"][0]
                     self._selected_id = first["id"]
                     self._show_detail_for(first["id"])
+                # re-apply active filter so refresh keeps search context
+                try:
+                    self._apply_filter(self._filter)
+                except Exception:  # noqa: BLE001,S110
+                    pass
+                # empty-state with CTA when nothing to show
+                try:
+                    if not roadmap.get("steps"):
+                        md = self.query_one("#roadmap-detail", Markdown)
+                        md.update("**No steps found**\n\n- Check docs/ROADMAP.md exists\n- Press r to retry")
+                        self._toast("Roadmap empty — press r to retry", severity="warning")
+                except Exception:  # noqa: BLE001,S110
+                    pass
             except Exception as exc:  # noqa: BLE001
                 try:
                     self.app.log_error(f"roadmap list update failed: {exc}")  # type: ignore[attr-defined]
                 except Exception:  # noqa: BLE001,S110
                     pass
+                self._toast(f"Roadmap refresh failed: {exc}", severity="error")
 
         def _show_detail_for(self, step_id: str) -> None:
             try:
@@ -230,6 +256,50 @@ if HAS_TEXTUAL:
                     f"- Módulo: {step.get('module','')} ({tipo})\n"
                     f"- Estado: {status}\n"
                 )
+            except Exception:  # noqa: BLE001,S110
+                pass
+
+        def on_input_changed(self, event: Input.Changed) -> None:  # type: ignore[no-untyped-def]
+            try:
+                if getattr(event.input, "id", "") != "roadmap-filter":
+                    return
+            except Exception:  # noqa: BLE001
+                return
+            self._filter = str(event.value or "")
+            try:
+                self._apply_filter(self._filter)
+            except Exception:  # noqa: BLE001,S110
+                pass
+
+        def _apply_filter(self, query: str) -> None:
+            # ponytail: substring fuzzy over label text, O(n) naive; headers always visible
+            lv = self.query_one("#roadmap-list", ListView)
+            q = (query or "").lower().strip()
+            visible = 0
+            for item in list(lv):
+                iid = str(getattr(item, "id", "") or "")
+                if iid.startswith("header-"):
+                    item.display = True
+                    continue
+                try:
+                    lab = item.query_one(Label)
+                    text = str(getattr(lab, "renderable", "") or lab).lower()
+                except Exception:  # noqa: BLE001
+                    text = iid.lower()
+                show = (not q) or (q in text) or (q in iid.lower())
+                item.display = show
+                if show:
+                    visible += 1
+            if q and visible == 0:
+                try:
+                    md = self.query_one("#roadmap-detail", Markdown)
+                    md.update(f"**No match for '{query}'**\n\n- Clear the filter to see all steps")
+                except Exception:  # noqa: BLE001,S110
+                    pass
+
+        def action_focus_filter(self) -> None:
+            try:
+                self.query_one("#roadmap-filter", Input).focus()
             except Exception:  # noqa: BLE001,S110
                 pass
 
@@ -341,10 +411,12 @@ if HAS_TEXTUAL:
                 except Exception:  # noqa: BLE001,S110
                     pass
                 self.app.call_from_thread(self.app.log_general, f"[OK] marcado {step_id}")  # type: ignore[attr-defined]
+                self.app.call_from_thread(self._toast, f"Done {step_id}")  # type: ignore[attr-defined]
                 self.app.call_from_thread(self.refresh_roadmap)
             except Exception as exc:  # noqa: BLE001
                 try:
                     self.app.call_from_thread(self.app.log_error, f"marcar hecho falló {step_id}: {exc}")  # type: ignore[attr-defined]
+                    self.app.call_from_thread(self._toast, f"Done failed {step_id}", severity="error")  # type: ignore[attr-defined]
                 except Exception:  # noqa: BLE001,S110
                     pass
 
@@ -356,10 +428,12 @@ if HAS_TEXTUAL:
                 repo = self._resolve_repo()
                 rm.mark_undone(repo, step_id)
                 self.app.call_from_thread(self.app.log_general, f"[OK] desmarcado {step_id}")  # type: ignore[attr-defined]
+                self.app.call_from_thread(self._toast, f"Undone {step_id}")  # type: ignore[attr-defined]
                 self.app.call_from_thread(self.refresh_roadmap)
             except Exception as exc:  # noqa: BLE001
                 try:
                     self.app.call_from_thread(self.app.log_error, f"desmarcar falló {step_id}: {exc}")  # type: ignore[attr-defined]
+                    self.app.call_from_thread(self._toast, f"Undo failed {step_id}", severity="error")  # type: ignore[attr-defined]
                 except Exception:  # noqa: BLE001,S110
                     pass
 
