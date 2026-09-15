@@ -6,7 +6,7 @@ from pathlib import Path
 try:
     from textual import work
     from textual.app import ComposeResult
-    from textual.containers import Container, Horizontal
+    from textual.containers import Container, Horizontal, Vertical
     from textual.widgets import Button, Input, Label, ListItem, ListView, Markdown, Static
 
     try:
@@ -16,10 +16,18 @@ try:
     except Exception:  # noqa: BLE001
         ProgressBar = None  # type: ignore[assignment,misc]
         HAS_PROGRESS = False
+    try:
+        from textual.screen import ModalScreen
+
+        HAS_MODAL = True
+    except Exception:  # noqa: BLE001
+        ModalScreen = None  # type: ignore[assignment,misc]
+        HAS_MODAL = False
     HAS_TEXTUAL = True
 except Exception:  # noqa: BLE001
     HAS_TEXTUAL = False
     HAS_PROGRESS = False
+    HAS_MODAL = False
     ComposeResult = object  # type: ignore[assignment]
     Container = object  # type: ignore[assignment]
     Static = object  # type: ignore[assignment]
@@ -28,6 +36,50 @@ except Exception:  # noqa: BLE001
 
 if HAS_TEXTUAL:
 
+    if HAS_MODAL:
+
+        class MissionModal(ModalScreen):  # type: ignore[valid-type]
+            """Complete-step celebration — ponytail: 3 Statics + 1 button, no artwork."""
+
+            BINDINGS = [("enter", "dismiss", "Seguir"), ("escape", "dismiss", "Seguir")]  # noqa: RUF012
+
+            def __init__(self, step_id: str = "", xp: int = 0, next_id: str | None = None, next_title: str = "", **kwargs):  # type: ignore[no-untyped-def]
+                super().__init__(**kwargs)
+                self.step_id = step_id
+                self.xp = xp
+                self.next_id = next_id
+                self.next_title = next_title
+
+            def compose(self) -> ComposeResult:
+                with Vertical(id="modal-box", classes="panel"):
+                    yield Static(f"✅ Misión completa: {self.step_id}  +{self.xp} XP", classes="panel-title")
+                    if self.next_id:
+                        yield Static(f"Siguiente: {self.next_id} — {self.next_title}", classes="muted")
+                    else:
+                        yield Static("¡Roadmap completado! 🎉", classes="muted")
+                    yield Button("Seguir (Enter)", id="btn-modal-ok", variant="success")
+
+            def on_button_pressed(self, event: Button.Pressed) -> None:  # type: ignore[no-untyped-def]
+                try:
+                    self.dismiss()
+                except Exception:  # noqa: BLE001,S110
+                    pass
+
+            def action_dismiss(self) -> None:
+                try:
+                    self.dismiss()
+                except Exception:  # noqa: BLE001,S110
+                    pass
+
+    else:
+
+        class MissionModal:  # type: ignore[no-redef]
+            def __init__(self, step_id: str = "", xp: int = 0, next_id: str | None = None, next_title: str = "", **kwargs):  # type: ignore[no-untyped-def]
+                self.step_id = step_id
+                self.xp = xp
+                self.next_id = next_id
+                self.next_title = next_title
+
     class RoadmapScreen(Container):  # type: ignore[valid-type]
         """Roadmap checklist B0..PF — ponytail: ListView + Input filter kept (DataTable skipped, tests pin ListView)."""
 
@@ -35,6 +87,7 @@ if HAS_TEXTUAL:
             ("d", "mark_done", "Marcar hecho"),
             ("u", "mark_undone", "Desmarcar"),
             ("r", "refresh", "Refrescar"),
+            ("n", "next_step", "Siguiente"),
             ("q", "back", "Volver"),
             ("escape", "back", "Volver"),
         ]
@@ -62,6 +115,7 @@ if HAS_TEXTUAL:
         def compose(self) -> ComposeResult:
             yield Static("Roadmap — Curso paso a paso", id="roadmap-title", classes="panel-title")
             yield Static("Progreso: 0/154 (0%)", id="roadmap-progress")
+            yield Static("", id="roadmap-stats", classes="muted")
             if HAS_PROGRESS and ProgressBar is not None:
                 try:
                     yield ProgressBar(total=154, id="roadmap-bar", show_eta=False)
@@ -73,12 +127,19 @@ if HAS_TEXTUAL:
                 yield Input(placeholder="Filter steps… (/ to focus)", id="roadmap-filter")
             except Exception:  # noqa: BLE001,S110
                 pass
+            # ponytail: one card per module, horizontal strip; ListView below stays the source of truth
+            try:
+                with Horizontal(id="roadmap-cards", classes="panel"):
+                    yield Static("Cargando misiones…", id="roadmap-cards-empty", classes="muted")
+            except Exception:  # noqa: BLE001,S110
+                pass
             with Horizontal(id="roadmap-main"):
                 yield ListView(id="roadmap-list", classes="panel")
                 yield Markdown("Selecciona un paso…", id="roadmap-detail", classes="panel")
             with Horizontal(id="roadmap-actions", classes="panel"):
                 yield Button("Marcar hecho (d)", id="btn-done", variant="success")
                 yield Button("Desmarcar (u)", id="btn-undo")
+                yield Button("Siguiente (n)", id="btn-next", variant="primary")
                 yield Button("Refrescar (r)", id="btn-refresh")
                 yield Button("Volver (q)", id="btn-back")
 
@@ -156,6 +217,48 @@ if HAS_TEXTUAL:
                             bar.progress = stats.get("done", 0)  # type: ignore[attr-defined]
                         except Exception:  # noqa: BLE001,S110
                             pass
+            except Exception:  # noqa: BLE001,S110
+                pass
+            # stats strip + mission cards (Phase 1 static XP; pure helpers, no I/O)
+            try:
+                from mnemo_tui.services.roadmap import CARD_GLYPHS, module_cards, stats_text
+
+                cards = module_cards(progress, roadmap)
+                xp_earned = sum(c.get("xp_earned", 0) for c in cards)
+                xp_total = sum(c.get("xp_total", 0) for c in cards)
+                try:
+                    self.query_one("#roadmap-stats", Static).update(stats_text(stats, xp_earned, xp_total, nxt))
+                except Exception:  # noqa: BLE001,S110
+                    pass
+                try:
+                    strip = self.query_one("#roadmap-cards", Horizontal)
+                    for child in list(strip.query(Static)):
+                        try:
+                            child.remove()
+                        except Exception:  # noqa: BLE001,S110
+                            pass
+                    for c in cards:
+                        glyph = CARD_GLYPHS.get(c.get("state", ""), "·")
+                        try:
+                            strip.mount(
+                                Static(
+                                    f"{glyph} {c.get('raw_id', '')} {c.get('done', 0)}/{c.get('total', 0)} · {c.get('xp_earned', 0)}/{c.get('xp_total', 0)}XP",
+                                    id=f"card-{c.get('id', '')}",
+                                    classes="panel",
+                                )
+                            )
+                        except Exception:  # noqa: BLE001,S110
+                            pass
+                except Exception:  # noqa: BLE001,S110
+                    pass
+                try:
+                    nb = self.query_one("#btn-next", Button)
+                    if nxt:
+                        nb.label = f"Siguiente (n): {nxt['id']}"
+                    else:
+                        nb.label = "Siguiente (n)"
+                except Exception:  # noqa: BLE001,S110
+                    pass
             except Exception:  # noqa: BLE001,S110
                 pass
             try:
@@ -250,10 +353,17 @@ if HAS_TEXTUAL:
                 status = "✅ Hecho" if step_id in done_set else "⏳ Pendiente"
                 mod = next((m for m in roadmap.get("modules", []) if m.get("id") == step.get("module")), None)
                 tipo = (mod.get("type") if mod else "") or "—"
+                try:
+                    from mnemo_tui.services.roadmap import xp_for_module
+
+                    xp_line = f"- XP: {xp_for_module(tipo if tipo != '—' else '')}/paso\n"
+                except Exception:  # noqa: BLE001
+                    xp_line = ""
                 md.update(
                     f"**{step['id']} — {step['title']}**\n\n"
                     f"- Sección: {step.get('section','')}\n"
                     f"- Módulo: {step.get('module','')} ({tipo})\n"
+                    f"{xp_line}"
                     f"- Estado: {status}\n"
                 )
             except Exception:  # noqa: BLE001,S110
@@ -300,6 +410,25 @@ if HAS_TEXTUAL:
         def action_focus_filter(self) -> None:
             try:
                 self.query_one("#roadmap-filter", Input).focus()
+            except Exception:  # noqa: BLE001,S110
+                pass
+
+        def action_next_step(self) -> None:
+            # ponytail: next-up CTA selects next pending and shows detail, no navigation stack
+            try:
+                sid = self._get_selected_or_next()
+                nxt = getattr(self, "_next_pending", None)
+                target = None
+                if isinstance(nxt, dict) and nxt.get("id"):
+                    target = str(nxt["id"])
+                elif sid and not sid.startswith("header-"):
+                    target = sid
+                if target:
+                    self._selected_id = target
+                    self._show_detail_for(target)
+                    self._toast(f"Siguiente: {target}")
+                else:
+                    self._toast("¡Roadmap completado! 🎉")
             except Exception:  # noqa: BLE001,S110
                 pass
 
@@ -357,6 +486,8 @@ if HAS_TEXTUAL:
                             pass
                 elif bid == "btn-refresh" or "refrescar" in label:
                     self.refresh_roadmap()
+                elif bid == "btn-next" or "siguiente" in label:
+                    self.action_next_step()
                 elif bid == "btn-back" or "volver" in label:
                     try:
                         self.app.action_hide_roadmap()  # type: ignore[attr-defined]
@@ -388,6 +519,32 @@ if HAS_TEXTUAL:
                 pass
             return sid
 
+        def _open_done_modal(self, step_id: str) -> None:
+            # ponytail: celebration modal with XP + next-up; silent skip when modal unavailable
+            try:
+                if not HAS_MODAL or MissionModal is None:
+                    return
+                from mnemo_tui.services import roadmap as rm
+
+                repo = self._resolve_repo()
+                roadmap = rm.load_roadmap(repo)
+                prog = rm.load_progress(repo)
+                nxt = rm.get_next_pending(prog, roadmap)
+                step_map = {s["id"]: s for s in roadmap.get("steps", [])}
+                step = step_map.get(step_id.strip().lower(), {})
+                mod = next((m for m in roadmap.get("modules", []) if m.get("id") == step.get("module")), None)
+                xp = rm.xp_for_module((mod or {}).get("type", ""))
+                self.app.push_screen(
+                    MissionModal(
+                        step_id=step_id,
+                        xp=xp,
+                        next_id=(nxt or {}).get("id"),
+                        next_title=str((nxt or {}).get("title", ""))[:38],
+                    )
+                )
+            except Exception:  # noqa: BLE001,S110
+                pass
+
         @work(thread=True)
         def do_mark_done(self, step_id: str) -> None:
             try:
@@ -412,6 +569,7 @@ if HAS_TEXTUAL:
                     pass
                 self.app.call_from_thread(self.app.log_general, f"[OK] marcado {step_id}")  # type: ignore[attr-defined]
                 self.app.call_from_thread(self._toast, f"Done {step_id}")  # type: ignore[attr-defined]
+                self.app.call_from_thread(self._open_done_modal, step_id)
                 self.app.call_from_thread(self.refresh_roadmap)
             except Exception as exc:  # noqa: BLE001
                 try:
@@ -487,6 +645,13 @@ else:
 
     class RoadmapScreen:  # type: ignore[no-redef]
         pass
+
+    class MissionModal:  # type: ignore[no-redef]
+        def __init__(self, step_id: str = "", xp: int = 0, next_id: str | None = None, next_title: str = "", **kwargs):  # type: ignore[no-untyped-def]
+            self.step_id = step_id
+            self.xp = xp
+            self.next_id = next_id
+            self.next_title = next_title
 
     def m_done_status(mod: dict, done_set: set[str]) -> str:  # type: ignore[no-redef]
         return "pendiente"
