@@ -738,6 +738,70 @@ def run_checks(root: Path, config: dict[str, Any]) -> None:
         run(command, cwd=root, check=True)
 
 
+# --- Phase 2 (tui-codedex-missions): per-module verify allowlist + MANIFEST-aware done ---
+# ponytail: overlay parsing reused from service (stdlib-only, same precedent as run_tui import)
+
+_VERIFY_TOKEN_RE = re.compile(r"^-{0,2}[A-Za-z0-9_][A-Za-z0-9_./-]*$")
+
+
+def missions_for_module(config: dict[str, Any], mid: str) -> dict[str, Any]:
+    """Overlay [missions.<mid>] — tasks/minutes/xp/verify/evidence, unknown keys ignored."""
+    from mnemo_tui.services.roadmap import missions_overlay
+
+    return dict(missions_overlay(config, mid))
+
+
+def _check_verify_cmd(raw: Any) -> list[str]:
+    """Validate one verify command. Raises MnemoError without executing anything."""
+    if not isinstance(raw, list) or not raw or not all(isinstance(t, str) and t for t in raw):
+        raise MnemoError("verificación malformada: se esperaba lista de argumentos no vacía")
+    for tok in raw:
+        if ".." in tok.split("/"):
+            raise MnemoError(f"verificación rechazada `{tok}`: fuera del repo")
+        if not _VERIFY_TOKEN_RE.fullmatch(tok):
+            raise MnemoError(f"verificación rechazada `{tok}`: caracteres no permitidos")
+    return list(raw)
+
+
+def _resolve_verify_exe(root: Path, exe: str) -> str:
+    if "/" in exe:
+        cand = (root / exe).resolve()
+        try:
+            cand.relative_to(root.resolve())
+        except ValueError:
+            raise MnemoError(f"verificación rechazada `{exe}`: fuera del repo")
+        if not cand.is_file():
+            raise MnemoError(f"verificación rechazada `{exe}`: no existe en el repo")
+        return str(cand)
+    if shutil.which(exe) is None:
+        raise MnemoError(f"no se puede ejecutar la verificación: falta {exe}")
+    return exe
+
+
+def run_module_verify(root: Path, config: dict[str, Any], mid: str) -> int:
+    """Run [missions.<mid>] verify allowlisted (shell=False via run helper).
+
+    Falls back to global session checks when the module declares none.
+    Raises MnemoError on refusal or non-zero exit — never executes refused input.
+    """
+    mid = str(mid).strip().lower()
+    overlay = missions_for_module(config, mid)
+    cmds = overlay.get("verify")
+    if not cmds:
+        run_checks(root, config)
+        return 0
+    if not isinstance(cmds, list):
+        raise MnemoError(f"verificación malformada en [missions.{mid}]: se esperaba lista de comandos")
+    for raw in cmds:
+        argv = _check_verify_cmd(raw)
+        argv[0] = _resolve_verify_exe(root, argv[0])
+        result = run(argv, cwd=root)
+        if result.returncode != 0:
+            raise MnemoError(f"verificación del módulo {mid} falló ({result.returncode})")
+    ok(f"verificación del módulo {mid} completada")
+    return 0
+
+
 def stage_paths(root: Path, paths: list[str]) -> None:
     if not paths:
         return
@@ -1283,6 +1347,26 @@ def cmd_roadmap_done(args: argparse.Namespace) -> int:
     if step_id not in step_map:
         raise MnemoError(f"paso desconocido `{args.step_id}`")
     completed = step_map[step_id]
+    if getattr(args, "with_check", False):
+        # MANIFEST-aware done: evidence warns, verify blocks (manual override otherwise wins)
+        try:
+            config = load_config(root)
+        except MnemoError:
+            config = {}
+        try:
+            from mnemo_tui.services.roadmap import evidence_state
+
+            states = evidence_state(root, roadmap, load_progress(root))
+            ev = states.get(step_id, "none")
+            if ev == "ok":
+                ok(f"evidencia presente para {step_id}")
+            elif ev == "error":
+                warn(f"MANIFEST corrupto para {completed['module']}: se marca manual")
+            else:
+                warn(f"evidencia ausente para {step_id} ({ev}): se marca manual")
+        except MnemoError as exc:
+            warn(f"no se pudo revisar evidencia: {exc}")
+        run_module_verify(root, config, completed["module"])
     mark_done(root, step_id)
     ok(f"marcado como completado: {step_id} — {completed['title']}")
     # update CURRENT.md atomically (simple: set próximo objetivo to next pending)
@@ -1321,7 +1405,10 @@ def cmd_roadmap_verify(args: argparse.Namespace) -> int:
         config = {}
     # reuse run_checks alias to check
     try:
-        run_checks(root, config)
+        if getattr(args, "module", None):
+            run_module_verify(root, config, str(args.module))
+        else:
+            run_checks(root, config)
         ok("verificación completada")
         return 0
     except MnemoError as exc:
@@ -1460,6 +1547,7 @@ def build_parser() -> argparse.ArgumentParser:
     road_done = road_sub.add_parser("done", help="Marcar paso como completado")
     road_done.add_argument("step_id", help="ID del paso (ej. b0-001)")
     road_done.add_argument("--yes", action="store_true", help="No pedir confirmación")
+    road_done.add_argument("--with-check", action="store_true", help="Revisar evidencia y correr verify del módulo antes de marcar")
     road_done.set_defaults(handler=cmd_roadmap_done)
 
     road_undo = road_sub.add_parser("undo", help="Revertir paso a pendiente")
@@ -1467,6 +1555,7 @@ def build_parser() -> argparse.ArgumentParser:
     road_undo.set_defaults(handler=cmd_roadmap_undo)
 
     road_verify = road_sub.add_parser("verify", help="Verificación rápida (ruff + pytest)")
+    road_verify.add_argument("--module", help="Verificar solo un módulo (ej. m1a) según [missions.<mid>]")
     road_verify.set_defaults(handler=cmd_roadmap_verify)
 
     return parser

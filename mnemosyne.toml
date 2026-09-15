@@ -35,3 +35,13 @@ role = "institutional-x86"
 [devices.Uranus]
 hostnames = ["uranus", "uranus-core-vnic"]
 role = "staging-arm64"
+
+# Phase 2 (tui-codedex-missions): per-module overlay. Uncomment to enable.
+# verify entries are allowlisted (repo-relative paths only, shell never used).
+# evidence points at evidence/<mid>/MANIFEST.json (version 1).
+# [missions.m1a]
+# tasks = 12
+# minutes = 240
+# xp = 120
+# verify = [["uv", "run", "pytest", "-q", "tests/test_m1a.py"]]
+# evidence = "evidence/m1a"
