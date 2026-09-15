@@ -1267,6 +1267,9 @@ def _roadmap_update_current(root: Path, completed: dict, nxt: dict | None) -> No
         device, role = _sock.gethostname(), "unknown"
     session = next_session_id(path) if path.exists() else "S001"
     notes = f"Actualizado automáticamente tras marcar {completed['id']}"
+    xp_note = completed.get("xp_awarded")
+    if isinstance(xp_note, int) and not isinstance(xp_note, bool) and xp_note > 0:
+        notes += f" (+{xp_note} XP verificado)"
     sync_state = "checkpoint local — actualizado por roadmap"
     content = render_current(
         session=session,
@@ -1367,7 +1370,21 @@ def cmd_roadmap_done(args: argparse.Namespace) -> int:
         except MnemoError as exc:
             warn(f"no se pudo revisar evidencia: {exc}")
         run_module_verify(root, config, completed["module"])
-    mark_done(root, step_id)
+        mark_done(root, step_id)
+        # verified done mints XP (this branch only — manual done never does)
+        try:
+            from mnemo_tui.services.gamification import award_xp as _award_xp
+            from mnemo_tui.services.roadmap import xp_for_module as _xp_for
+
+            step_mod = next((m for m in roadmap["modules"] if m["id"] == completed["module"]), {})
+            per = _xp_for(step_mod.get("type", ""))
+            _award_xp(root, step_id, per, source="verify")
+            completed["xp_awarded"] = per
+            ok(f"+{per} XP por verificación de {step_id}")
+        except (ValueError, OSError) as exc:
+            warn(f"no se pudo registrar XP: {exc}")
+    else:
+        mark_done(root, step_id)
     ok(f"marcado como completado: {step_id} — {completed['title']}")
     # update CURRENT.md atomically (simple: set próximo objetivo to next pending)
     progress = load_progress(root)
