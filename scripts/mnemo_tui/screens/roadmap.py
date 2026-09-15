@@ -359,11 +359,19 @@ if HAS_TEXTUAL:
                     xp_line = f"- XP: {xp_for_module(tipo if tipo != '—' else '')}/paso\n"
                 except Exception:  # noqa: BLE001
                     xp_line = ""
+                try:
+                    from mnemo_tui.services.roadmap import evidence_state
+
+                    ev = evidence_state(self._resolve_repo(), roadmap, progress).get(step_id, "none")
+                    ev_line = f"- Evidencia: {ev}\n"
+                except Exception:  # noqa: BLE001
+                    ev_line = ""
                 md.update(
                     f"**{step['id']} — {step['title']}**\n\n"
                     f"- Sección: {step.get('section','')}\n"
                     f"- Módulo: {step.get('module','')} ({tipo})\n"
                     f"{xp_line}"
+                    f"{ev_line}"
                     f"- Estado: {status}\n"
                 )
             except Exception:  # noqa: BLE001,S110

@@ -368,3 +368,132 @@ def stats_text(stats: dict, xp_earned: int, xp_total: int, next_step: dict | Non
     if next_step:
         return base + f" · Siguiente: {next_step.get('id')}: {str(next_step.get('title', ''))[:38]}"
     return base + " · ¡Completado!"
+
+
+# --- Phase 2 (tui-codedex-missions): MANIFEST v1 evidence scan + missions overlay ---
+# ponytail: existence only, executables never run; corrupt manifest degrades to manual
+
+MANIFEST_VERSION = 1
+MISSIONS_KNOWN_KEYS = ("tasks", "minutes", "xp", "verify", "evidence")
+
+
+class ManifestError(ValueError):
+    """MANIFEST.json exists but is unusable (corrupt JSON, bad version, bad shape)."""
+
+
+def _evidence_dir(repo_root: Path | str, mid: str) -> Path:
+    return _resolve_repo_safe(repo_root) / "evidence" / str(mid).strip().lower()
+
+
+def _safe_evidence_path(base: Path, rel: str) -> Path | None:
+    """Resolve a manifest path strictly inside base. None when escaping."""
+    if not isinstance(rel, str) or not rel.strip():
+        return None
+    rel = rel.strip()
+    if rel.startswith(("/", "\\")):
+        return None
+    parts = [p for p in rel.replace("\\", "/").split("/") if p not in ("", ".")]
+    if not parts or ".." in parts:
+        return None
+    try:
+        cand = (base / Path(*parts)).resolve()
+    except (OSError, ValueError):
+        return None
+    try:
+        cand.relative_to(base.resolve())
+    except ValueError:
+        return None
+    return cand
+
+
+def load_manifest(repo_root: Path | str, mid: str) -> dict:
+    """Load evidence/<mid>/MANIFEST.json. FileNotFoundError when absent."""
+    path = _evidence_dir(repo_root, mid) / "MANIFEST.json"
+    try:
+        raw = path.read_text(encoding="utf-8")
+    except FileNotFoundError:
+        raise
+    except OSError as exc:
+        raise ManifestError(f"MANIFEST ilegible {path}: {exc}")
+    try:
+        data = json.loads(raw)
+    except (json.JSONDecodeError, UnicodeDecodeError) as exc:
+        raise ManifestError(f"MANIFEST corrupto {path}: {exc}")
+    if not isinstance(data, dict) or data.get("version") != MANIFEST_VERSION:
+        raise ManifestError(f"MANIFEST versión inválida {path}: se esperaba v{MANIFEST_VERSION}")
+    steps = data.get("steps", {})
+    if not isinstance(steps, dict):
+        raise ManifestError(f"MANIFEST sin steps {path}")
+    return data
+
+
+def scan_evidence(repo_root: Path | str, mid: str) -> dict[str, bool]:
+    """step_id -> True when every listed file exists. Never executes anything.
+
+    Missing or corrupt manifest yields {} — use evidence_state to tell them apart.
+    """
+    try:
+        data = load_manifest(repo_root, mid)
+    except (FileNotFoundError, ManifestError, ValueError):
+        return {}
+    base = _evidence_dir(repo_root, mid)
+    out: dict[str, bool] = {}
+    steps = data.get("steps", {})
+    if not isinstance(steps, dict):
+        return {}
+    for step_id, rels in steps.items():
+        if not isinstance(rels, list):
+            out[str(step_id)] = False
+            continue
+        ok = True
+        for rel in rels:
+            cand = _safe_evidence_path(base, rel) if isinstance(rel, str) else None
+            if cand is None or not cand.is_file():
+                ok = False
+                break
+        out[str(step_id)] = ok
+    return out
+
+
+def evidence_state(repo_root: Path | str, roadmap: dict, progress: dict) -> dict[str, str]:
+    """Per-step evidence: ok | missing | none (no manifest) | error (corrupt).
+
+    progress is reserved for Phase 3 done-pairing; states never block manual done.
+    """
+    states: dict[str, str] = {}
+    for m in roadmap.get("modules", []):
+        mid = m.get("id", "")
+        try:
+            load_manifest(repo_root, mid)
+        except FileNotFoundError:
+            for s in m.get("steps", []):
+                states[s["id"]] = "none"
+            continue
+        except (ManifestError, ValueError, OSError):
+            for s in m.get("steps", []):
+                states[s["id"]] = "error"
+            continue
+        scan = scan_evidence(repo_root, mid)
+        for s in m.get("steps", []):
+            sid = s["id"]
+            if sid not in scan:
+                states[sid] = "none"
+            else:
+                states[sid] = "ok" if scan[sid] else "missing"
+    return states
+
+
+def missions_overlay(config: dict | None, mid: str) -> dict:
+    """Overlay from [missions.<mid>]: tasks/minutes/xp/verify/evidence only.
+
+    Unknown keys and unknown modules are ignored (empty dict).
+    """
+    if not isinstance(config, dict):
+        return {}
+    table = config.get("missions", {})
+    if not isinstance(table, dict):
+        return {}
+    entry = table.get(str(mid).strip().lower(), {})
+    if not isinstance(entry, dict):
+        return {}
+    return {k: entry[k] for k in MISSIONS_KNOWN_KEYS if k in entry}
