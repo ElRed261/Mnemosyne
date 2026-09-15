@@ -1371,10 +1371,13 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog=APP,
         description="Continuidad local-first para andry-de-zoomcamp.",
+        epilog="Run with no arguments to launch the dark Textual TUI "
+        "(needs an 80x24 interactive terminal with textual installed). "
+        "Use --no-tui to force CLI.",
     )
     parser.add_argument("--repo", help="Ruta del repositorio; por defecto se detecta")
     parser.add_argument("--no-tui", action="store_true", help="Disable TUI and force CLI")
-    subparsers = parser.add_subparsers(dest="subcommand", required=True)
+    subparsers = parser.add_subparsers(dest="subcommand")
 
     doctor = subparsers.add_parser("doctor", help="Diagnóstico de solo lectura")
     doctor.add_argument("--json", action="store_true")
@@ -1478,6 +1481,9 @@ def main(argv: Sequence[str] | None = None) -> int:
     filtered = [a for a in raw if a != "--no-tui"]
     parser = build_parser()
     args = parser.parse_args(filtered)
+    if not args.subcommand:
+        parser.print_help()
+        return 0
     if args.subcommand == "device" and args.action == "set" and not args.name:
         parser.error("device set requiere el nombre del nodo")
     try:

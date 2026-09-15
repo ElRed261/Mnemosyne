@@ -15,18 +15,21 @@ try:
     from textual.theme import Theme
     from textual.widgets import Footer, Header
 
+    from mnemo_tui.commands import MnemoProvider
     from mnemo_tui.screens.dashboard import DashboardScreen
     from mnemo_tui.screens.roadmap import RoadmapScreen
     from mnemo_tui.widgets.banner import Banner
     from mnemo_tui.widgets.log_panel import LogPanel
 
     TEXTUAL_AVAILABLE = True
+    _COMMANDS = {MnemoProvider}
 except Exception:  # noqa: BLE001
     TEXTUAL_AVAILABLE = False
     App = object  # type: ignore[assignment,misc]
     ComposeResult = object  # type: ignore[assignment]
     Theme = object  # type: ignore[assignment]
     RoadmapScreen = object  # type: ignore[assignment]
+    _COMMANDS = set()  # type: ignore[var-annotated]
 
 
 def _ts() -> str:
@@ -41,8 +44,15 @@ if TEXTUAL_AVAILABLE:
         CSS_PATH = Path(__file__).with_name("theme.tcss")
         TITLE = "Mnemosyne"
         SUB_TITLE = "Data Engineering Zoomcamp"
-        BINDINGS = [  # noqa: RUF012  # ponytail: minimal bindings, roadmap toggle only
+        COMMANDS = _COMMANDS  # type: ignore[assignment]  # Ctrl+P palette (doctor/start/current/sync/roadmap)
+        BINDINGS = [  # noqa: RUF012  # ponytail: palette is Ctrl+P by default; display toggle kept for tests
             ("r", "show_roadmap", "Roadmap"),
+            ("question_mark", "show_help", "Help"),
+            ("slash", "focus_search", "Search"),
+            ("q", "go_back", "Back"),
+            ("escape", "go_back", "Back"),
+            ("j", "cursor_down", "Down"),
+            ("k", "cursor_up", "Up"),
         ]
 
         def __init__(self, **kwargs):  # type: ignore[no-untyped-def]
@@ -178,6 +188,25 @@ if TEXTUAL_AVAILABLE:
             except Exception:  # noqa: BLE001,S110
                 pass
 
+        def _toast(self, message: str, *, severity: str = "information") -> None:
+            try:
+                self.notify(message, severity=severity)
+            except Exception:  # noqa: BLE001,S110
+                pass
+
+        def run_mnemo_action(self, label: str) -> None:
+            """Palette entry point — delegates to dashboard worker (non-blocking)."""
+            try:
+                dash = self.query_one("#dashboard")
+                run = getattr(dash, "run_action", None)
+                if callable(run):
+                    run(label)
+                    self._toast(f"Running {label}…")
+                else:
+                    self.log_error(f"No runner for {label}")
+            except Exception as exc:  # noqa: BLE001
+                self.log_error(f"Palette action failed {label}: {exc}")
+
         def show_roadmap(self) -> None:
             try:
                 dash = self.query_one("#dashboard")
@@ -198,8 +227,10 @@ if TEXTUAL_AVAILABLE:
                 if hasattr(road, "refresh_roadmap"):
                     road.refresh_roadmap()  # type: ignore[attr-defined]
                 self.log_general("Roadmap abierto — r refresca, d marca, u desmarca, q vuelve")
+                self._toast("Roadmap — / filters, d done, u undo, q back")
             except Exception as exc:  # noqa: BLE001
                 self.log_error(f"No se pudo abrir roadmap: {exc}")
+                self._toast(f"Roadmap failed: {exc}", severity="error")
 
         def hide_roadmap(self) -> None:
             try:
@@ -221,7 +252,21 @@ if TEXTUAL_AVAILABLE:
         def action_hide_roadmap(self) -> None:
             self.hide_roadmap()
 
-        def action_quit(self) -> None:
+        def action_show_help(self) -> None:
+            self._toast("Keys: r roadmap · / filter · d done · u undo · q/Esc back · j/k move · Ctrl+P commands · ? help")
+
+        def action_focus_search(self) -> None:
+            try:
+                road = self.query_one("#roadmap")
+                if getattr(road, "display", False):
+                    filt = road.query_one("#roadmap-filter")
+                    filt.focus()  # type: ignore[attr-defined]
+                    return
+            except Exception:  # noqa: BLE001,S110
+                pass
+            self._toast("Open roadmap (r) to search steps")
+
+        def action_go_back(self) -> None:
             try:
                 road = self.query_one("#roadmap")
                 if getattr(road, "display", False):
@@ -230,6 +275,43 @@ if TEXTUAL_AVAILABLE:
             except Exception:  # noqa: BLE001,S110
                 pass
             self.exit(0)
+
+        def action_cursor_down(self) -> None:
+            try:
+                focused = self.focused
+                if focused is not None and type(focused).__name__ == "ListView":
+                    focused.action_cursor_down()  # type: ignore[attr-defined]
+                    return
+                road = self.query_one("#roadmap")
+                if getattr(road, "display", False):
+                    road.query_one("#roadmap-list").action_cursor_down()  # type: ignore[attr-defined]
+                    return
+            except Exception:  # noqa: BLE001,S110
+                pass
+            try:
+                self.screen.focus_next()
+            except Exception:  # noqa: BLE001,S110
+                pass
+
+        def action_cursor_up(self) -> None:
+            try:
+                focused = self.focused
+                if focused is not None and type(focused).__name__ == "ListView":
+                    focused.action_cursor_up()  # type: ignore[attr-defined]
+                    return
+                road = self.query_one("#roadmap")
+                if getattr(road, "display", False):
+                    road.query_one("#roadmap-list").action_cursor_up()  # type: ignore[attr-defined]
+                    return
+            except Exception:  # noqa: BLE001,S110
+                pass
+            try:
+                self.screen.focus_previous()
+            except Exception:  # noqa: BLE001,S110
+                pass
+
+        def action_quit(self) -> None:
+            self.action_go_back()
 
 else:
 
