@@ -293,3 +293,78 @@ def mark_undone(repo_root: Path | str, step_id: str) -> dict:
     payload = {"done": done, "updated": dt.datetime.now(dt.UTC).isoformat()}
     save_progress(root, payload)
     return payload
+
+
+# --- Phase 1 (tui-codedex-missions): static XP table + card metadata ---
+# ponytail: decorative until Phase 2 config lands; substring match, most specific first
+
+XP_BY_TYPE: dict[str, int] = {
+    "taller": 15,
+    "integración": 20,
+    "troncal": 10,
+    "refuerzo": 5,
+    "personal": 5,
+    "complemento": 5,
+}
+XP_DEFAULT = 10
+
+CARD_GLYPHS = {"done": "✓", "current": "▶", "locked": "🔒", "vacío": "○"}
+
+
+def xp_for_module(type_str: str) -> int:
+    """Static XP per step from module type substring. Pure function."""
+    t = (type_str or "").lower()
+    for key, val in XP_BY_TYPE.items():
+        if key in t:
+            return val
+    return XP_DEFAULT
+
+
+def module_cards(progress: dict, roadmap: dict) -> list[dict]:
+    """One card per module with linear done/current/locked states.
+
+    Each card: {id, raw_id, title, total, done, pct, xp_total, xp_earned, state}.
+    States: done (all steps), current (first incomplete), locked (later),
+    vacío (zero steps, e.g. X2 — never blocks the chain).
+    """
+    done_set = set(progress.get("done", [])) if isinstance(progress, dict) else set()
+    cards: list[dict] = []
+    blocked = False
+    for m in roadmap.get("modules", []):
+        steps = m.get("steps", [])
+        total = len(steps)
+        done = sum(1 for s in steps if s["id"] in done_set)
+        pct = round(done / total * 100, 1) if total else 0.0
+        per = xp_for_module(m.get("type", ""))
+        if total == 0:
+            state = "vacío"
+        elif done == total:
+            state = "done"
+        elif blocked:
+            state = "locked"
+        else:
+            state = "current"
+        cards.append(
+            {
+                "id": m.get("id", ""),
+                "raw_id": m.get("raw_id", ""),
+                "title": m.get("title", ""),
+                "total": total,
+                "done": done,
+                "pct": pct,
+                "xp_total": total * per,
+                "xp_earned": done * per,
+                "state": state,
+            }
+        )
+        if total and done < total:
+            blocked = True
+    return cards
+
+
+def stats_text(stats: dict, xp_earned: int, xp_total: int, next_step: dict | None) -> str:
+    """One-line stats strip: counts + XP + next-up. Pure function."""
+    base = f"{stats.get('done', 0)}/{stats.get('total', 0)} ({stats.get('pct', 0)}%) · XP {xp_earned}/{xp_total}"
+    if next_step:
+        return base + f" · Siguiente: {next_step.get('id')}: {str(next_step.get('title', ''))[:38]}"
+    return base + " · ¡Completado!"
