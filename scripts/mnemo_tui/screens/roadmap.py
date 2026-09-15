@@ -226,8 +226,25 @@ if HAS_TEXTUAL:
                 cards = module_cards(progress, roadmap)
                 xp_earned = sum(c.get("xp_earned", 0) for c in cards)
                 xp_total = sum(c.get("xp_total", 0) for c in cards)
+                strip_txt = stats_text(stats, xp_earned, xp_total, nxt)
+                # ponytail: ledger suffix when XP exists, else static strip stands alone
                 try:
-                    self.query_one("#roadmap-stats", Static).update(stats_text(stats, xp_earned, xp_total, nxt))
+                    import datetime as _dt
+
+                    from mnemo_tui.services import gamification as _gm
+
+                    repo = self._resolve_repo()
+                    total = _gm.total_xp(repo)
+                    if total > 0:
+                        lv = _gm.level_for_xp(total)
+                        rk = _gm.rank_for_level(lv)
+                        dates = [a.get("at", "") for a in _gm.load_ledger(repo).get("awards", [])]
+                        streak = _gm.streak_days(dates, _dt.datetime.now(_dt.UTC).date())
+                        strip_txt += f" · Lv{lv} {rk} · 🔥{streak}"
+                except Exception:  # noqa: BLE001,S110
+                    pass
+                try:
+                    self.query_one("#roadmap-stats", Static).update(strip_txt)
                 except Exception:  # noqa: BLE001,S110
                     pass
                 try:

@@ -296,3 +296,62 @@ def test_module_verify_runs_allowlisted_command(tmp_path: Path) -> None:
         assert False, "failing verify must raise"
     except mnemo.MnemoError:
         pass
+
+
+# --- Phase 3 (tui-codedex-missions): XP ledger, levels, streak ---
+
+
+def test_xp_awarded_once(tmp_path: Path) -> None:
+    from mnemo_tui.services.gamification import award_xp, total_xp
+
+    award_xp(tmp_path, "b0-001", 10, source="verify")
+    award_xp(tmp_path, "b0-001", 10, source="verify")  # replay must not double count
+    award_xp(tmp_path, "b0-002", 10, source="verify")
+    assert total_xp(tmp_path) == 20
+
+
+def test_level_and_rank_boundaries() -> None:
+    from mnemo_tui.services.gamification import level_for_xp, rank_for_level
+
+    assert level_for_xp(0) == 1
+    assert level_for_xp(99) == 1
+    assert level_for_xp(100) == 2
+    assert level_for_xp(250) == 3
+    assert level_for_xp(18000) == 25
+    assert level_for_xp(999999) == 25  # capped
+    assert rank_for_level(1) == "Bronze"
+    assert rank_for_level(5) == "Bronze"
+    assert rank_for_level(6) == "Silver"
+    assert rank_for_level(11) == "Gold"
+    assert rank_for_level(16) == "Platinum"
+    assert rank_for_level(21) == "Diamond"
+    assert rank_for_level(25) == "Diamond"
+
+
+def test_streak_gap_no_backfill() -> None:
+    import datetime as dt
+
+    from mnemo_tui.services.gamification import streak_days
+
+    today = dt.date(2026, 9, 15)
+    iso = lambda d: dt.datetime(d.year, d.month, d.day, 12, tzinfo=dt.UTC).isoformat()
+    d = lambda n: today - dt.timedelta(days=n)
+    # run D-2..D0 with a gap at D-3 -> streak 3, older dates do not extend
+    assert streak_days([iso(d(4)), iso(d(2)), iso(d(1)), iso(d(0))], today) == 3
+    assert streak_days([iso(d(4)), iso(d(2)), iso(d(1)), iso(d(0)), iso(d(10))], today) == 3
+    assert streak_days([], today) == 0
+    # yesterday only still counts as active streak of 1
+    assert streak_days([iso(d(1))], today) == 1
+    # last activity 3 days ago -> streak over
+    assert streak_days([iso(d(3))], today) == 0
+
+
+def test_badges_per_completed_module(tmp_path: Path) -> None:
+    from mnemo_tui.services.gamification import badges_for
+    from mnemo_tui.services.roadmap import load_roadmap
+
+    _write_roadmap(tmp_path)
+    rm = load_roadmap(tmp_path)
+    assert badges_for({"done": []}, rm) == []
+    all_b0 = [s["id"] for s in rm["steps"] if s["module"] == "b0"]
+    assert badges_for({"done": all_b0}, rm) == ["b0"]
